@@ -1,0 +1,152 @@
+--------------------------------------------------
+Domain : jms-sample
+Server : AdminServer
+JMS Server : SourceJMSServer, TargetJMSServer
+
+This doesnt use the managed servers.  
+Nodemanager and cluster setup has to be configured for managed server setup
+
+Use the command prompt to run the below wlst steps
+--------------------------------------------------
+
+Location :  cd C:\cs\appsrv\bin\wl10.3c\wlserver\server\bin
+server\bin -> set JAVA_HOME=c:\cs\java\jdk160_16\jre\
+server\bin -> echo %JAVA_HOME%
+server\bin -> setWlSEnv.cmd
+server\bin -> java -Dssl.debug=true -Dweblogic.nodemanager.sslHostNameVerificationEnabled=false -Dweblogic.security.SSL.enforceConstraints=off -Dweblogic.security.TrustKeyStore=trustkeystore -Dweblogic.security.SSL.ignoreHostnameVerification=true weblogic.WLST (start WLST for offline configuration)
+
+createDomain('C:/cs/appsrv/bin/wl10.3c/wlserver/common/templates/domains/wls.jar','C:/Apps/Tip70/cs/appsrv/domains/jms-sample', 'weblogic', 'welcome1')
+readDomain('C:/Apps/Tip70/cs/appsrv/domains/jms-sample')
+
+/myjmsdomain>cd('Servers\AdminServer')
+/myjmsdomain/Server/AdminServer>set('ListenAddress','')
+/myjmsdomain/Server/AdminServer>set('ListenPort',7001)
+
+startServer('AdminServer','jms-sample','t3://localhost:7001','weblogic','welcome1','C:/Apps/Tip70/cs/appsrv/domains/jms-sample','false', 60000, jvmArgs='-XX:MaxPermSize=256m, -Xmx512m, -XX:+UseParallelGC') 
+connect('weblogic', 'welcome1');
+
+edit();
+startEdit();
+
+adminserver=cmo.lookupServer('AdminServer')
+
+FIRST SERVER
+------------------
+Create a JMS File Store
+------------------
+jmsSourceFileStore = cmo.createFileStore('SourceJMSFileStore');
+targets=jmsSourceFileStore.getTargets();
+targets.append(adminserver);
+jmsSourceFileStore.setTargets(targets);
+
+------------------
+Create a JMS Server and target to the server as the file store
+------------------
+
+jmsSourceServer = cmo.createJMSServer('SourceJMSServer');
+jmsSourceServer.setPersistentStore(jmsSourceFileStore);
+#targets.append(adminserver);
+jmsSourceServer.setTargets(targets);
+
+------------------
+Create a JMS System module and target it to the cluster (No need to create twice)
+------------------
+jmsSourceModule = cmo.createJMSSystemResource('MySourceJMSModule');
+#targets.append(adminserver);
+jmsSourceModule.setTargets(targets);
+
+------------------
+Create a JMS Sub Deployment and target it to the jms server
+------------------
+jmsSourceModule.createSubDeployment('MySourceSubDeployment');
+subDeployment = jmsSourceModule.lookupSubDeployment('MySourceSubDeployment');
+targets.remove(adminserver);
+targets.append(jmsSourceServer);
+subDeployment.setTargets(targets);
+
+------------------
+Create a JMS Connection Factory and map it to a sub deployment (This can be mapped to multiple sub-deployments)
+------------------
+jmsSourceResource = jmsSourceModule.getJMSResource();
+jmsSourceResource.createConnectionFactory('MySourceConnectionFactory');
+sourceConnectionFactory = jmsSourceResource.lookupConnectionFactory('MySourceConnectionFactory');
+sourceConnectionFactory.setJNDIName('jms/SourceConnectionFactory');
+sourceConnectionFactory.setSubDeploymentName('MySourceSubDeployment');
+ 
+------------------
+Create a JMS Queue and map it to a sub deployment (This can be mapped to a single sub-deployments)
+------------------ 
+jmsSourceResource.createQueue('MySourceQueue');
+sourceQueue = jmsSourceResource.lookupQueue('MySourceQueue');
+sourceQueue.setJNDIName('jms/MySourceQueue');
+sourceQueue.setSubDeploymentName('MySourceSubDeployment');
+sourceQueue.getDeliveryParamsOverrides().setRedeliveryDelay(100);
+sourceQueue.getDeliveryFailureParams().setRedeliveryLimit(5);
+sourceQueue.getDeliveryFailureParams().setExpirationPolicy('Log');
+sourceQueue.getDeliveryFailureParams().setExpirationLoggingPolicy('%headers%);
+sourceQueue.getMessageLoggingParams().setMessageLoggingEnabled(true);
+sourceQueue.getMessageLoggingParams().setMessageLoggingFormat('%headers%');
+
+targets.remove(jmsSourceServer);
+
+SECOND SERVER
+------------------
+Create a JMS File Store
+------------------
+
+jmsTargetFileStore = cmo.createFileStore('TargetJMSFileStore');
+targets=jmsTargetFileStore.getTargets();
+targets.append(adminserver);
+jmsTargetFileStore.setTargets(targets);
+
+------------------
+Create a JMS Server and target to the server as the file store
+------------------
+
+jmsTargetServer = cmo.createJMSServer('TargetJMSServer');
+jmsTargetServer.setPersistentStore(jmsTargetFileStore);
+#targets.append(adminserver);
+jmsTargetServer.setTargets(targets);
+
+------------------
+Create a JMS System module and target it to the cluster (No need to create twice)
+------------------
+jmsTargetModule = cmo.createJMSSystemResource('MyTargetJMSModule');
+#targets.append(adminserver);
+jmsTargetModule.setTargets(targets);
+
+------------------
+Create a JMS Sub Deployment and target it to the jms server
+------------------
+jmsTargetModule.createSubDeployment('MyTargetSubDeployment');
+subDeployment = jmsTargetModule.lookupSubDeployment('MyTargetSubDeployment');
+targets.remove(adminserver);
+targets.append(jmsTargetServer);
+subDeployment.setTargets(targets);
+
+------------------
+Create a JMS Connection Factory and map it to a sub deployment (This can be mapped to multiple sub-deployments)
+------------------
+jmsTargetResource = jmsTargetModule.getJMSResource();
+jmsTargetResource.createConnectionFactory('MyTargetConnectionFactory');
+targetConnectionFactory = jmsTargetResource.lookupConnectionFactory('MyTargetConnectionFactory');
+targetConnectionFactory.setJNDIName('jms/TargetConnectionFactory');
+targetConnectionFactory.setSubDeploymentName('MyTargetSubDeployment');
+ 
+------------------
+Create a JMS Queue and map it to a sub deployment (This can be mapped to a single sub-deployments)
+------------------ 
+jmsTargetResource.createQueue('MyTargetQueue');
+targetQueue = jmsTargetResource.lookupQueue('MyTargetQueue');
+targetQueue.setJNDIName('jms/MyTargetQueue');
+targetQueue.setSubDeploymentName('MyTargetSubDeployment');
+targetQueue.getDeliveryParamsOverrides().setRedeliveryDelay(100);
+targetQueue.getDeliveryFailureParams().setRedeliveryLimit(5);
+targetQueue.getDeliveryFailureParams().setExpirationPolicy('Log');
+targetQueue.getDeliveryFailureParams().setExpirationLoggingPolicy('%headers%);
+targetQueue.getMessageLoggingParams().setMessageLoggingEnabled(true);
+targetQueue.getMessageLoggingParams().setMessageLoggingFormat('%headers%');
+targetQueue.getMessageLoggingParams().setMessageLoggingFormat('%headers%');
+
+save();
+activate();
